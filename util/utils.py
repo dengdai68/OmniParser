@@ -491,14 +491,52 @@ def get_som_labeled_img(image_source: Union[str, Image.Image], model=None, BOX_T
 
 
 def get_xywh(input):
-    x, y, w, h = input[0][0], input[0][1], input[2][0] - input[0][0], input[2][1] - input[0][1]
-    x, y, w, h = int(x), int(y), int(w), int(h)
-    return x, y, w, h
+    """
+    将OCR边界框转换为xywh格式
+    输入可能是: [[x1,y1], [x2,y2], [x3,y3], [x4,y4]] 或其他格式
+    """
+    try:
+        # 尝试标准格式: [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+        if isinstance(input, (list, tuple)) and len(input) >= 3:
+            if isinstance(input[0], (list, tuple)) and len(input[0]) >= 2:
+                x, y, w, h = input[0][0], input[0][1], input[2][0] - input[0][0], input[2][1] - input[0][1]
+                x, y, w, h = int(x), int(y), int(w), int(h)
+                return x, y, w, h
+        # 如果是扁平列表 [x1, y1, x2, y2, x3, y3, x4, y4]
+        elif isinstance(input, (list, tuple)) and len(input) >= 8:
+            x, y, w, h = input[0], input[1], input[4] - input[0], input[5] - input[1]
+            x, y, w, h = int(x), int(y), int(w), int(h)
+            return x, y, w, h
+    except (IndexError, TypeError) as e:
+        logger.error(f"get_xywh转换失败，输入格式: {type(input)}, 内容: {input}, 错误: {e}")
+        raise
+
+    logger.error(f"get_xywh无法识别的输入格式: {type(input)}, 内容: {input}")
+    raise ValueError(f"Unsupported bbox format: {input}")
 
 def get_xyxy(input):
-    x, y, xp, yp = input[0][0], input[0][1], input[2][0], input[2][1]
-    x, y, xp, yp = int(x), int(y), int(xp), int(yp)
-    return x, y, xp, yp
+    """
+    将OCR边界框转换为xyxy格式
+    输入可能是: [[x1,y1], [x2,y2], [x3,y3], [x4,y4]] 或其他格式
+    """
+    try:
+        # 尝试标准格式: [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+        if isinstance(input, (list, tuple)) and len(input) >= 3:
+            if isinstance(input[0], (list, tuple)) and len(input[0]) >= 2:
+                x, y, xp, yp = input[0][0], input[0][1], input[2][0], input[2][1]
+                x, y, xp, yp = int(x), int(y), int(xp), int(yp)
+                return x, y, xp, yp
+        # 如果是扁平列表 [x1, y1, x2, y2, x3, y3, x4, y4]
+        elif isinstance(input, (list, tuple)) and len(input) >= 8:
+            x, y, xp, yp = input[0], input[1], input[4], input[5]
+            x, y, xp, yp = int(x), int(y), int(xp), int(yp)
+            return x, y, xp, yp
+    except (IndexError, TypeError) as e:
+        logger.error(f"get_xyxy转换失败，输入格式: {type(input)}, 内容: {input}, 错误: {e}")
+        raise
+
+    logger.error(f"get_xyxy无法识别的输入格式: {type(input)}, 内容: {input}")
+    raise ValueError(f"Unsupported bbox format: {input}")
 
 def get_xywh_yolo(input):
     x, y, w, h = input[0], input[1], input[2] - input[0], input[3] - input[1]
@@ -520,25 +558,57 @@ def check_ocr_box(image_source: Union[str, Image.Image], display_img = True, out
             text_threshold = easyocr_args['text_threshold']
 
         logger.debug(f"使用PaddleOCR进行文本检测，阈值: {text_threshold}")
-        result = paddle_ocr.ocr(image_np, cls=False)
-        logger.debug(f"PaddleOCR原始结果类型: {type(result)}, 长度: {len(result) if result else 'None'}")
+        ocr_result = paddle_ocr.ocr(image_np, cls=False)
+        logger.debug(f"PaddleOCR原始结果类型: {type(ocr_result)}")
 
-        # Handle None or empty results
-        if result is None or len(result) == 0 or result[0] is None:
-            logger.warning("PaddleOCR未检测到任何文本")
+        # 处理PaddleOCR返回None或空结果的情况
+        if ocr_result is None or len(ocr_result) == 0:
+            logger.warning("PaddleOCR返回None或空结果")
             coord = []
             text = []
         else:
-            result = result[0]
-            logger.debug(f"PaddleOCR结果[0]类型: {type(result)}, 长度: {len(result) if result else 'None'}")
-            if result and len(result) > 0:
-                logger.debug(f"第一个检测项示例: {result[0]}")
+            result = ocr_result[0]
+            logger.debug(f"PaddleOCR result[0]类型: {type(result)}, 值: {result}")
 
-            # Filter results based on confidence threshold
-            # Each item format: [bbox_coords, (text, confidence)]
-            coord = [item[0] for item in result if len(item) > 1 and isinstance(item[1], (list, tuple)) and len(item[1]) > 1 and item[1][1] > text_threshold]
-            text = [item[1][0] for item in result if len(item) > 1 and isinstance(item[1], (list, tuple)) and len(item[1]) > 1 and item[1][1] > text_threshold]
-            logger.info(f"PaddleOCR检测到 {len(text)} 个文本区域（阈值过滤后）")
+            # 如果result是None，说明没有检测到文本
+            if result is None:
+                logger.warning("PaddleOCR未检测到任何文本")
+                coord = []
+                text = []
+            else:
+                # PaddleOCR返回格式: [[[x1,y1],[x2,y2],[x3,y3],[x4,y4]], (text, confidence)]
+                logger.debug(f"检测到 {len(result)} 个文本区域")
+                if len(result) > 0:
+                    logger.debug(f"第一个检测结果示例: {result[0]}")
+
+                coord = []
+                text = []
+                for item in result:
+                    try:
+                        # 检查item格式是否正确
+                        if not isinstance(item, (list, tuple)) or len(item) < 2:
+                            logger.warning(f"跳过格式错误的项: {item}")
+                            continue
+
+                        bbox = item[0]  # 边界框坐标
+                        text_info = item[1]  # (文本, 置信度)
+
+                        # 检查text_info是否是元组/列表
+                        if not isinstance(text_info, (list, tuple)) or len(text_info) < 2:
+                            logger.warning(f"跳过text_info格式错误的项: {text_info}")
+                            continue
+
+                        confidence = text_info[1]
+
+                        # 检查置信度是否大于阈值
+                        if confidence > text_threshold:
+                            coord.append(bbox)
+                            text.append(text_info[0])
+                    except Exception as e:
+                        logger.error(f"处理OCR结果项时出错: {item}, 错误: {e}")
+                        continue
+
+                logger.info(f"PaddleOCR检测到 {len(text)} 个文本区域（阈值过滤后）")
     else:  # EasyOCR
         if easyocr_args is None:
             easyocr_args = {}
