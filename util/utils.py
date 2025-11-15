@@ -19,6 +19,10 @@ import numpy as np
 from matplotlib import pyplot as plt
 import easyocr
 from paddleocr import PaddleOCR
+import logging
+
+# 获取logger
+logger = logging.getLogger(__name__)
 reader = easyocr.Reader(['en'])
 paddle_ocr = PaddleOCR(
     lang='en',  # other lang also available
@@ -514,9 +518,27 @@ def check_ocr_box(image_source: Union[str, Image.Image], display_img = True, out
             text_threshold = 0.5
         else:
             text_threshold = easyocr_args['text_threshold']
-        result = paddle_ocr.ocr(image_np, cls=False)[0]
-        coord = [item[0] for item in result if item[1][1] > text_threshold]
-        text = [item[1][0] for item in result if item[1][1] > text_threshold]
+
+        logger.debug(f"使用PaddleOCR进行文本检测，阈值: {text_threshold}")
+        result = paddle_ocr.ocr(image_np, cls=False)
+        logger.debug(f"PaddleOCR原始结果类型: {type(result)}, 长度: {len(result) if result else 'None'}")
+
+        # Handle None or empty results
+        if result is None or len(result) == 0 or result[0] is None:
+            logger.warning("PaddleOCR未检测到任何文本")
+            coord = []
+            text = []
+        else:
+            result = result[0]
+            logger.debug(f"PaddleOCR结果[0]类型: {type(result)}, 长度: {len(result) if result else 'None'}")
+            if result and len(result) > 0:
+                logger.debug(f"第一个检测项示例: {result[0]}")
+
+            # Filter results based on confidence threshold
+            # Each item format: [bbox_coords, (text, confidence)]
+            coord = [item[0] for item in result if len(item) > 1 and isinstance(item[1], (list, tuple)) and len(item[1]) > 1 and item[1][1] > text_threshold]
+            text = [item[1][0] for item in result if len(item) > 1 and isinstance(item[1], (list, tuple)) and len(item[1]) > 1 and item[1][1] > text_threshold]
+            logger.info(f"PaddleOCR检测到 {len(text)} 个文本区域（阈值过滤后）")
     else:  # EasyOCR
         if easyocr_args is None:
             easyocr_args = {}
