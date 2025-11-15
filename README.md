@@ -78,3 +78,20 @@ If you find our work useful, please consider citing our work:
       url={https://arxiv.org/abs/2408.00203}, 
 }
 ```
+
+
+git clone https://github.com/microsoft/OmniParser.git
+
+
+cd OmniParser
+conda create -n "omni" python==3.12
+conda activate omni
+pip install -r requirements.txt
+
+mkdir weights
+cd weights
+modelscope download --model AI-ModelScope/OmniParser-v2.0 --local_dir ./
+mv weights/icon_caption weights/icon_caption_florence
+
+
+python gradio_demo.py
